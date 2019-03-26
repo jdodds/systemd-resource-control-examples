@@ -1,0 +1,5 @@
+.vagrant
+*o
+src/primes/matho-pascal
+src/primes/matho-primes
+src/primes/matho-sumsq
