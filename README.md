@@ -8,3 +8,5 @@ This will be:
 
 
 Right now it contains a base for the demo environment, `vagrant up` will get you a CentOS 7 box with a few dummy executables added to /usr/local/bin for use by example services.
+
+Slides for a talk overviewing the topic can be viewed at https://jdodds.github.io/systemd-resource-control-examples/ .
