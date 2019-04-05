@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Resource Control In systemd</title>
+<meta name="author" content="(Jeremiah Dodds)"/>
+<style type="text/css">
+.underline { text-decoration: underline; }
+</style>
+<link rel="stylesheet" href="./reveal.js/css/reveal.css"/>
+
+<link rel="stylesheet" href="./reveal.js/css/theme/moon.css" id="theme"/>
+
+<link rel="stylesheet" href="./reveal.js/lib/css/zenburn.css"/>
+<!-- If the query includes 'print-pdf', include the PDF print sheet -->
+<script>
+    if( window.location.search.match( /print-pdf/gi ) ) {
+        var link = document.createElement( 'link' );
+        link.rel = 'stylesheet';
+        link.type = 'text/css';
+        link.href = './reveal.js/css/print/pdf.css';
+        document.getElementsByTagName( 'head' )[0].appendChild( link );
+    }
+</script>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+<section id="sec-title-slide"><h1 class="title">Resource Control In systemd</h1><h2 class="author">Jeremiah Dodds</h2><p class="date">Created: 2019-04-05 Fri 10:17</p>
+</section>
+
+<section>
+<section id="slide-org0972625">
+<h2 id="org0972625">What is systemd and why do I care?</h2>
+<ul>
+<li>"system and service manager" that runs as PID 1</li>
+
+<li>replacement for sysvinit</li>
+
+<li>basically the current standard for init systems</li>
+
+</ul>
+
+</section>
+<section id="slide-orgcd4eb57">
+<h3 id="orgcd4eb57">in the "best" position for doing monitoring and limiting</h3>
+<p>
+outside of writing kernel code or very low-level stuff like hardware watchdogs
+</p>
+
+</section>
+</section>
+<section>
+<section id="slide-orgad97874">
+<h2 id="orgad97874">CPU, Memory, IO, Bandwidth, etc are limited</h2>
+<p>
+We would like to be able to reason about the amount of a particular resource being consumed by one or more of our applications.
+</p>
+</section>
+<section id="slide-orgda93dd1">
+<h3 id="orgda93dd1">Many "traditional" methods of resource limiting are per-<i>process</i></h3>
+<p>
+<code>man 2 setrlimit</code> has it's place, but can get complicated very fast when trying to manage multi-process services
+</p>
+</section>
+<section id="slide-org751ad8d">
+<h3 id="org751ad8d">systemd wants to expose the <i>service</i> as the unit under control, as opposed to the <i>process</i></h3>
+</section>
+</section>
+<section>
+<section id="slide-orgad50f3d">
+<h2 id="orgad50f3d">Grouping and Control: Concepts</h2>
+<div class="outline-text-2" id="text-orgad50f3d">
+</div>
+</section>
+<section id="slide-org5d78897">
+<h3 id="org5d78897">A fair amount of systemd's functionality is built upon <i>cgroups</i></h3>
+<ul>
+<li>kernel mechanism for both logical grouping and resource control within those groups</li>
+<li>complicated history and semi-incompatible apis between versions</li>
+<li><i>can</i> take manual control of in services but discouraged</li>
+
+</ul>
+</section>
+<section id="slide-org336adcf">
+<h3 id="org336adcf">systemd manages <i>units</i></h3>
+<p>
+Lots of different types of things that may have dependencies on each other, mostly configured through "unit files".
+</p>
+
+<ul>
+<li>services &#x2013; control of processes started by systemd</li>
+<li>scopes &#x2013; control of processes started externally to systemd</li>
+<li>slices &#x2013; groupings of units</li>
+
+</ul>
+</section>
+</section>
+<section>
+<section id="slide-orgdc5dd1e">
+<h2 id="orgdc5dd1e">Grouping and Control: Examples</h2>
+<p>
+Note that settings typically only mean something when the resource being controlled is under contention.
+</p>
+</section>
+<section id="slide-org9d75732">
+<h3 id="org9d75732">A simple service</h3>
+<p>
+<code>/etc/systemd/system/foo.service</code>
+</p>
+<div class="org-src-container">
+
+<pre><code class="systemd" >[Unit]
+Description=For All Your Foo Needs
+
+[Service]
+ExecStart=/usr/sbin/foo-daemon
+
+[Install]
+WantedBy=multi-user.target
+</code></pre>
+</div>
+</section>
+<section id="slide-org0c170f8">
+<h3 id="org0c170f8">Controlling CPU</h3>
+<div class="outline-text-3" id="text-org0c170f8">
+</div>
+</section>
+<section id="slide-org448ff08">
+<h4 id="org448ff08">CPUWeight</h4>
+<p>
+Defaults to 100, assigned to fraction of value compared to the sum of all CPUWeights
+</p>
+
+<p>
+(higher = more)
+</p>
+
+</section>
+<section >
+
+<p>
+<code>/etc/systemd/system/cpu-heavy.service</code>
+</p>
+<div class="org-src-container">
+
+<pre><code class="systemd" >[Unit]
+Description=Calculates just the largest primes
+
+[Service]
+ExecStart=/usr/bin/bigol-primes
+
+# our primes are important!
+CPUWeight=200
+
+[Install]
+WantedBy=multi-user.target
+</code></pre>
+</div>
+</section>
+<section id="slide-orgbd02f14">
+<h4 id="orgbd02f14">CPUQuota and CPUQuotaPeriodSec</h4>
+<p>
+<code>CPUQuota</code> is the <i>maximum</i> time the unit will get relative to the total time available on <i>one</i> CPU. Values greater than 100% allot time on more than one CPU.
+</p>
+
+<p>
+<code>CPUQuotaPeriodSec</code> is the duration over which <code>CPUQuota</code> is measured, defaults to 100ms, minimum of 1ms.
+</p>
+
+</section>
+<section >
+<p>
+<code>/etc/systemd/system/cpu-heavy.service</code>
+</p>
+
+<div class="org-src-container">
+
+<pre><code class="systemd" >[Unit]
+Description=Calculates just the largest primes
+
+[Service]
+ExecStart=/usr/bin/bigol-primes
+
+# Our primes are not so important!
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
+</code></pre>
+</div>
+
+</section>
+<section id="slide-org8948837">
+<h4 id="org8948837">CPUAffinity</h4>
+<p>
+Pins to one or more CPUs:
+</p>
+
+<p>
+<code>/etc/systemd/system/cpu-heavy.service</code>
+</p>
+<div class="org-src-container">
+
+<pre><code class="systemd" >
+[Unit]
+Description=Calculates just the largest primes
+
+[Service]
+ExecStart=/usr/bin/bigol-primes
+
+# our primes should only be found by processors 0, 1, and 2
+CPUAffinity=0-2
+
+[Install]
+WantedBy=multi-user.target
+</code></pre>
+</div>
+
+</section>
+<section id="slide-orgf40a9fe">
+<h3 id="orgf40a9fe">Controlling Memory</h3>
+<ul>
+<li><code>MemoryMin</code> &#x2013; memory size in bytes or percentage of physical memory. If usage of this unit and its ancestors are below, this units memory will not be reclaimed</li>
+<li><code>MemoryLow</code> &#x2013; Like <code>MemoryMin</code> but will still have memory reclaimed if nothing is reclaimable from unprotected units</li>
+
+</ul>
+
+</section>
+<section >
+
+<ul>
+<li><code>MemoryHigh</code> &#x2013; memory size in bytes or percentage of physical memory. Usage can go above, but will be reclaimed aggressively and processes slowed down.</li>
+<li><code>MemoryMax</code> &#x2013; like <code>MemoryHigh</code> but if usage goes above, the OOM-killer is invoked.</li>
+
+</ul>
+
+</section>
+<section >
+
+<ul>
+<li><code>MemorySwapMax</code> &#x2013; maximum size in bytes of swap usage allowed</li>
+
+</ul>
+
+</section>
+<section id="slide-org21ffcf8">
+<h3 id="org21ffcf8">Controlling Other Things</h3>
+<ul>
+<li>Tasks (processes and threads)</li>
+<li>I/O</li>
+<li>IP Address filtering</li>
+<li>Device access</li>
+
+</ul>
+
+</section>
+<section id="slide-org4c5edaa">
+<h3 id="org4c5edaa">Grouping With Slices</h3>
+<p>
+<code>/etc/systemd/system/limits.slice</code>
+</p>
+<div class="org-src-container">
+
+<pre><code class="systemd" >[Unit]
+Description=Limits that apply to everything in this slice
+
+[Slice]
+MemoryHigh=4G
+CPUQuota=300%
+</code></pre>
+</div>
+
+<p>
+In <code>.service</code> files:
+</p>
+<div class="org-src-container">
+
+<pre><code class="systemd" >[Service]
+Slice=limits.slice
+</code></pre>
+</div>
+
+<p>
+Only values in <code>man systemd.resource-control</code>
+</p>
+
+</section>
+</section>
+<section>
+<section id="slide-orgc5d3caf">
+<h2 id="orgc5d3caf">Q&amp;A</h2>
+<p>
+Slides: <a href="https://jdodds.github.io/systemd-resource-control-examples">https://jdodds.github.io/systemd-resource-control-examples</a>
+</p>
+
+<p>
+References:
+</p>
+<ul>
+<li><a href="https://www.freedesktop.org/wiki/Software/systemd/">https://www.freedesktop.org/wiki/Software/systemd/</a></li>
+<li><a href="http://0pointer.de/blog/projects/resources.html">http://0pointer.de/blog/projects/resources.html</a></li>
+<li><a href="https://schnouki.net/post/2013/resource-control-with-systemd/">https://schnouki.net/post/2013/resource-control-with-systemd/</a></li>
+<li><a href="https://www.kernel.org/doc/Documentation/cgroup-v2.txt">https://www.kernel.org/doc/Documentation/cgroup-v2.txt</a></li>
+
+</ul>
+</section>
+</section>
+</div>
+</div>
+<script src="./reveal.js/lib/js/head.min.js"></script>
+<script src="./reveal.js/js/reveal.js"></script>
+
+<script>
+// Full list of configuration options available here:
+// https://github.com/hakimel/reveal.js#configuration
+Reveal.initialize({
+
+controls: true,
+progress: true,
+history: false,
+center: true,
+slideNumber: 'c',
+rollingLinks: false,
+keyboard: true,
+overview: true,
+
+theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+transition: Reveal.getQueryHash().transition || 'linear', // default/cube/page/concave/zoom/linear/fade/none
+transitionSpeed: 'default',
+multiplex: {
+    secret: '', // null if client
+    id: '', // id, obtained from socket.io server
+    url: '' // Location of socket.io server
+},
+
+// Optional libraries used to extend on reveal.js
+dependencies: [
+ { src: './reveal.js/plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }]
+});
+</script>
+</body>
+</html>
